@@ -481,8 +481,10 @@ grounded_moving (void)
 	psub (&v2, &p1, &p2);
 	v2.z = 0;
 
-	printf ("%g\n", RTOD (acos (vdot (&v1, &v2))));
-	if (acos (vdot (&v1, &v2)) >= DTOR (50)) {
+	vnorm (&v1, &v1);
+	vnorm (&v2, &v2);
+
+	if (abs (acos (vdot (&v1, &v2))) >= DTOR (50)) {
 		return;
 	}
 
