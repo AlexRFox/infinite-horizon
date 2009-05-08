@@ -1,0 +1,7 @@
+#! /bin/sh
+
+git commit -a
+
+git push --thin --all
+
+echo "Completed! (Hopefully successful)"

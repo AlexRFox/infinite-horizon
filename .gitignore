@@ -1,0 +1,10 @@
+*~
+*.o
+*.blend1
+?
+basemmo
+basemmo.c.bak
+dinoshade.c
+dinoshade
+\#*\#
+*.ppm
