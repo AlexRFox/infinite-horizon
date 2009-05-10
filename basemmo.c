@@ -29,11 +29,12 @@ enum {
 
 	GRAVITY = 10,
 	FRICTION = 1,
-	PLAYERMAXVEL = 10,
+	PLAYERMAXVEL = 100,
 
 	GROUNDED = 0,
 	FALLING = 1,
 	FLYING = 2,
+	SLIDING = 3,
 };
 
 #define GROUNDTHRESHOLD .1
@@ -56,13 +57,13 @@ struct unit {
 
 struct unit player;
 
-struct groundpoly {
-	struct groundpoly *next;
-	double a, b, c;
+struct groundtri {
+	struct groundtri *next;
+	double a, b, c, normtheta, theta;
 	struct pt p1, p2, p3, p4;
 };
 
-struct groundpoly *first_groundpoly, *last_groundpoly;
+struct groundtri *first_groundtri, *last_groundtri;
 
 struct groundtexture {
 	int texturesize;
@@ -71,8 +72,65 @@ struct groundtexture {
 
 struct groundtexture groundtexture;
 
+struct groundtri *player_plane;
+
+void
+detect_player_plane (struct pt p)
+{
+	struct groundtri *gp, gndpoly;
+	double theta;
+	struct vect v1, v2;
+
+	v1.z = 0;
+	v2.z = 0;
+	p.z = 0;
+
+	for (gp = first_groundtri; gp; gp = gp->next) {
+		theta = 0;
+
+		gndpoly = *gp;
+
+		gndpoly.p1.z = 0;
+		gndpoly.p2.z = 0;
+		gndpoly.p3.z = 0;
+
+		psub (&v1, &p, &gndpoly.p1);
+		vnorm (&v1, &v1);
+
+		psub (&v2, &p, &gndpoly.p2);
+		vnorm (&v2, &v2);
+
+		theta += acos (vdot (&v1, &v2));
+
+
+		psub (&v1, &p, &gndpoly.p2);
+		vnorm (&v1, &v1);
+
+		psub (&v2, &p, &gndpoly.p3);
+		vnorm (&v2, &v2);
+
+		theta += acos (vdot (&v1, &v2));
+
+		
+		psub (&v1, &p, &gndpoly.p3);
+		vnorm (&v1, &v1);
+
+		psub (&v2, &p, &gndpoly.p1);
+		vnorm (&v2, &v2);
+
+		theta += acos (vdot (&v1, &v2));
+
+		if (theta > DTOR (359)) {
+			player_plane = gp;
+			return;
+		}
+	}
+
+	printf ("ERROR! Could not detect which plane point was on!\n");
+}
+
 double
-check_collision (struct pt *p1, struct pt *p2, struct groundpoly *gp)
+check_collision (struct pt *p1, struct pt *p2, struct groundtri *gp)
 {
 	struct vect old_vect, new_vect, v1, v2, v3, v4, norm_vect;
 	double old_dp, new_dp, a, b, c, t, theta;
@@ -192,20 +250,15 @@ makeImages ()
 double
 ground_height (struct pt p)
 {
-	int i;
 	double theta;
 	struct vect v1, v2;
-	struct groundpoly *gp, gndpoly;
+	struct groundtri *gp, gndpoly;
 
-	theta = 0;
 	v1.z = 0;
 	v2.z = 0;
 	p.z = 0;
-	i = 0;
 
-	for (gp = first_groundpoly; gp; gp = gp->next) {
-		i++;
-
+	for (gp = first_groundtri; gp; gp = gp->next) {
 		theta = 0;
 
 		gndpoly = *gp;
@@ -327,8 +380,7 @@ void
 grounded_moving (void)
 {
 	double now, dt, acc_x, acc_y, mov_hypot;
-	struct pt player_newpos, p1, p2;
-	struct vect v1, v2;
+	struct pt player_newpos;
 
 	now = get_secs ();
 
@@ -470,42 +522,64 @@ grounded_moving (void)
 	player_newpos.y = player.p.y + player.mov_vel_y * dt;
 	player_newpos.z = ground_height (player_newpos);
 
-	p1.x = player.p.x;
-	p1.y = player.p.y;
-	p1.z = player.p.z;
-	p2.x = player_newpos.x;
-	p2.y = player_newpos.y;
-	p2.z = player_newpos.z;
+	detect_player_plane (player_newpos);
 
-	psub (&v1, &p1, &p2);
-	psub (&v2, &p1, &p2);
-	v2.z = 0;
-
-	vnorm (&v1, &v1);
-	vnorm (&v2, &v2);
-
-	if (abs (acos (vdot (&v1, &v2))) >= DTOR (50)) {
-		return;
+	if (player_plane->theta > DTOR (50)) {
+		player.movtype = FALLING;
+		player_newpos.z = player.p.z;
 	}
 
-	player.p.x = player_newpos.x;
-	player.p.y = player_newpos.y;
-	player.p.z = player_newpos.z;
+	player.p = player_newpos;
+
+	printf ("GROUNDED\n");
 }
 
 void
 falling_moving (void)
 {
+	printf ("FALLING\n");
+	double now, dt, gndheight;
+	struct pt player_newpos;
+
+	now = get_secs ();
+
+	dt = now - player.lasttimemov;
+
+	player.mov_vel_z -= GRAVITY * dt;
+
+	player_newpos.x = player.p.x + player.mov_vel_x * dt;
+	player_newpos.y = player.p.y + player.mov_vel_y * dt;
+	player_newpos.z = player.p.z + player.mov_vel_z * dt;
+
+	gndheight = ground_height (player_newpos);
+
+	if (player_newpos.z < gndheight) {
+		player.movtype = GROUNDED;
+		player_newpos.z = gndheight;
+		player.mov_vel_z = 0;
+	}
+
+	player.p = player_newpos;
 }
 
 void
 flying_moving (void)
 {
+	printf ("FLYING MOVING\n");
+}
+
+void
+sliding_falling (void)
+{
+	printf ("SLIDING FALLING\n");
 }
 
 void
 moving (void)
 {
+	if (player.mov_vel_z != 0)
+		player.movtype = FALLING;
+
 	switch (player.movtype) {
 	case GROUNDED:
 		grounded_moving ();
@@ -516,12 +590,15 @@ moving (void)
 	case FLYING:
 		flying_moving ();
 		break;
+	case SLIDING:
+		//sliding_moving ();
+		break;
 	}
 
 	/*	double now, dt, acc_x, acc_y, mov_hypot, ground_z, grounded,
 		t[16], j, l, m, n, a, b, c;
 	int i, k;
-	struct groundpoly *gp;
+	struct groundtri *gp;
 	struct pt player_newpos;
 
 	now = get_secs ();
@@ -668,7 +745,7 @@ moving (void)
 	player_newpos.y = player.p.y + player.mov_vel_y * dt;
 	player_newpos.z = player.p.z + player.mov_vel_z * dt;
 
-	for (gp = first_groundpoly; gp; gp = gp->next) {
+	for (gp = first_groundtri; gp; gp = gp->next) {
 		j = check_collision (&player.p, &player_newpos, gp);
 		if (j != 0) {
 			t[i] = j;
@@ -740,20 +817,21 @@ process_mouse (void)
 
 void
 define_plane (double x1, double y1, double z1,
-			double x2, double y2, double z2,
-			double x3, double y3, double z3)
+	      double x2, double y2, double z2,
+	      double x3, double y3, double z3,
+	      double theta)
 {
-	struct groundpoly *gp;
+	struct groundtri *gp;
 
 	gp = xcalloc (1, sizeof *gp);
 
-	if (first_groundpoly == NULL) {
-		first_groundpoly = gp;
+	if (first_groundtri == NULL) {
+		first_groundtri = gp;
 	} else {
-		last_groundpoly->next = gp;
+		last_groundtri->next = gp;
 	}
 
-	last_groundpoly = gp;
+	last_groundtri = gp;
 	
 	gp->a = (((y1 - y2) * z3)
 		 / (x2 * y3 + x1 * (y2 - y3) - x3 * y2 + (x3 - x2) * y1))
@@ -785,6 +863,9 @@ define_plane (double x1, double y1, double z1,
 	gp->p3.x = x3;
 	gp->p3.y = y3;
 	gp->p3.z = z3;
+
+	gp->normtheta = theta;
+	gp->theta = fabs (theta - DTOR (90));
 }
 
 void
@@ -794,8 +875,8 @@ read_terrain (void)
 	char buf[1000];
 	int idx;
 	char *tokstate, *tok;
-	double vals[12];
-	double v1[3], v2[3], v3[3];
+	double vals[12], v1[3], v2[3], v3[3], theta;
+	struct vect v4, v5;
 
 	if ((inf = fopen ("simpleground.raw", "r")) == NULL) {
 		fprintf (stderr, "can't open terrain.raw\n");
@@ -812,8 +893,6 @@ read_terrain (void)
 
 	glColor3f (1, 1, 0);
 
-//	glShadeModel (GL_FLAT);
-
 	while (fgets (buf, sizeof buf, inf) != NULL) {
 		idx = 0;
 		tokstate = buf;
@@ -826,10 +905,24 @@ read_terrain (void)
 		arrayvsub (v2, vals, vals + 6);
 		arrayvcross (v3, v1, v2);
 
+		v4.x = v3[0];
+		v4.y = v3[1];
+		v4.z = v3[2];
+
+		v5.x = v3[0] + 1;
+		v5.y = v3[1] + 1;
+		v5.z = 0;
+
+		vnorm (&v4, &v4);
+		vnorm (&v5, &v5);
+
+		theta = acos (vdot (&v4, &v5));
+
 		if (idx == 9) {
 			define_plane (vals[0], vals[1], vals[2],
-						vals[3], vals[4], vals[5],
-						vals[6], vals[7], vals[8]);
+				      vals[3], vals[4], vals[5],
+				      vals[6], vals[7], vals[8],
+				      theta);
 
 			glBindTexture (GL_TEXTURE_2D, texName[0]);
 			glBegin (GL_TRIANGLES);
