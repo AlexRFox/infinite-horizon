@@ -359,6 +359,18 @@ hypot3 (double a, double b, double c)
 	return (sqrt (square (a) + square (b) + square (c)));
 }
 
+double
+hypot3v (struct vect *v)
+{
+	return (sqrt (square (v->x) + square (v->y) + square (v->z)));
+}
+
+double
+hypotv (struct vect *v)
+{
+	return (hypot (v->x, v->y));
+}
+
 void
 psub (struct vect *v1, struct pt *p1, struct pt *p2)
 {
@@ -372,9 +384,9 @@ vnorm (struct vect *v1, struct vect *v2)
 {
 	struct vect result;
 	
-	result.x = v2->x / hypot3 (v2->x, v2->y, v2->z);
-	result.y = v2->y / hypot3 (v2->x, v2->y, v2->z);
-	result.z = v2->z / hypot3 (v2->x, v2->y, v2->z);
+	result.x = v2->x / hypot3v (v2);
+	result.y = v2->y / hypot3v (v2);
+	result.z = v2->z / hypot3v (v2);
 
 	*v1 = result;
 }
@@ -395,4 +407,28 @@ arrayvsub (double *a, double *b, double *c)
 	a[0] = b[0] - c[0];
 	a[1] = b[1] - c[1];
 	a[2] = b[2] - c[2];
+}
+
+void
+applyforcetopt (struct pt *p, struct vect *v)
+{
+	p->x += v->x;
+	p->y += v->y;
+	p->z += v->z;
+}
+
+void
+vinvert (struct vect *v1, struct vect *v2)
+{
+	v1->x = -v2->x;
+	v1->y = -v2->y;
+	v1->z = -v2->z;
+}
+
+void
+zerovect (struct vect *v)
+{
+	v->x = 0;
+	v->y = 0;
+	v->z = 0;
 }

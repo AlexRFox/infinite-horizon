@@ -93,6 +93,10 @@ double square (double a);
 
 double hypot3 (double a, double b, double c);
 
+double hypot3v (struct vect *v);
+
+double hypotv (struct vect *v);
+
 void psub (struct vect *v1, struct pt *p1, struct pt *p2);
 
 void vnorm (struct vect *v1, struct vect *v2);
@@ -100,3 +104,9 @@ void vnorm (struct vect *v1, struct vect *v2);
 void arrayvcross (double *a, double *b, double *c);
 
 void arrayvsub (double *a, double *b, double *c);
+
+void applyforcetopt (struct pt *p, struct vect *v);
+
+void vinvert (struct vect *v1, struct vect *v2);
+
+void zerovect (struct vect *v1);

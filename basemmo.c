@@ -27,7 +27,7 @@ enum {
 	FAKE_Q = 4,
 	FAKE_E = 5,
 
-	GRAVITY = 10,
+	GRAVITY = -10,
 	FRICTION = 1,
 	PLAYERMAXVEL = 100,
 
@@ -61,6 +61,7 @@ struct groundtri {
 	struct groundtri *next;
 	double a, b, c, normtheta, theta;
 	struct pt p1, p2, p3, p4;
+	struct vect normv, grad;
 };
 
 struct groundtri *first_groundtri, *last_groundtri;
@@ -74,7 +75,7 @@ struct groundtexture groundtexture;
 
 struct groundtri *player_plane;
 
-void
+struct groundtri *
 detect_player_plane (struct pt p)
 {
 	struct groundtri *gp, gndpoly;
@@ -121,12 +122,12 @@ detect_player_plane (struct pt p)
 		theta += acos (vdot (&v1, &v2));
 
 		if (theta > DTOR (359)) {
-			player_plane = gp;
-			return;
+			return (gp);
 		}
 	}
 
 	printf ("ERROR! Could not detect which plane point was on!\n");
+	return (NULL);
 }
 
 double
@@ -250,7 +251,8 @@ makeImages ()
 double
 ground_height (struct pt p)
 {
-	double theta;
+	int best_flag;
+	double theta, best_diff, best_z;
 	struct vect v1, v2;
 	struct groundtri *gp, gndpoly;
 
@@ -294,10 +296,23 @@ ground_height (struct pt p)
 		theta += acos (vdot (&v1, &v2));
 
 		if (theta > DTOR (359)) {
-			return (gp->a * p.x + gp->b * p.y + gp->c);
+			double z = gp->a * p.x + gp->b * p.y + gp->c;
+			double diff = fabs (z - p.z);
+
+			if (best_flag == 0) {
+				best_flag = 1;
+				best_z = z;
+				best_diff = diff;
+			} else if (diff < best_diff) {
+				best_z = z;
+				best_diff = diff;
+			}
 		}
 	}		
 	
+	if (best_flag)
+		return (best_z);
+
 	printf ("ERROR! Could not find ground, expect weirdness!\n");
 
 	return (1);
@@ -784,6 +799,169 @@ moving (void)
 	player.p.z = ground_collision_height (player.p);*/
 }
 
+#define LOGVAR_NSAMPLES 10000
+
+struct logvar {
+	struct logvar *next;
+	char *name;
+	double *valp;
+	double samples[LOGVAR_NSAMPLES];
+};
+struct logvar *logvars;
+int logvar_idx;
+double logvar_times[LOGVAR_NSAMPLES];
+
+void
+write_logvars (void)
+{
+	struct logvar *vp;
+	char filename[1000];
+	FILE *f;
+	int idx;
+
+	for (vp = logvars; vp; vp = vp->next) {
+		sprintf (filename, "%s.dat", vp->name);
+		if ((f = fopen (filename, "w")) == NULL) {
+			fprintf (stderr, "can't create %s\n", filename);
+			exit (1);
+		}
+		for (idx = 0; idx < logvar_idx; idx++) {
+			fprintf (f, "%.14g %.14g\n",
+				 logvar_times[idx] - logvar_times[0],
+				 vp->samples[idx]);
+		}
+		fclose (f);
+	}
+}
+
+void
+add_logvar (char *name, double *valp)
+{
+	struct logvar *vp;
+	static int beenhere;
+
+	if (beenhere == 0) {
+		beenhere = 1;
+		atexit (write_logvars);
+	}
+
+	vp = xcalloc (1, sizeof *vp);
+	vp->name = strdup (name);
+	vp->valp = valp;
+
+	vp->next = logvars;
+	logvars = vp;
+}
+
+void
+capture_logvars (void)
+{
+	struct logvar *vp;
+
+	if (logvar_idx < LOGVAR_NSAMPLES) {
+		logvar_times[logvar_idx] = get_secs ();
+		for (vp = logvars; vp; vp = vp->next) {
+			vp->samples[logvar_idx] = *vp->valp;
+		}
+	}
+	logvar_idx++;
+}
+
+double new_moving_height;
+
+void
+new_moving (void)
+{
+	double ground_z, now, dt, fz, az, ground_stiffness,
+		ground_damping, fx, forw_thrust, ax, friction, fy, ay,
+		theta;
+	struct groundtri *gp;
+	struct vect v1, v2, v3, v4, grad, grav;
+
+	now = get_secs ();
+	dt = now - player.lasttimemov;
+
+	ground_z = ground_height (player.p);
+
+	forw_thrust = 100;
+	friction = 1;
+	ground_stiffness = 7500;
+	ground_damping = 100;
+
+	fx = 0;
+	fy = 0;
+	fz = 0;
+
+	grav.x = 0;
+	grav.y = 0;
+	grav.z = GRAVITY * player.mass;
+
+	zerovect (&v1);
+	zerovect (&v2);
+	zerovect (&v3);
+	zerovect (&v4);
+
+	if (arrowkey[UP]) {
+		fx += forw_thrust * cos (player.theta);
+		fy += forw_thrust * sin (player.theta);
+	}
+
+	new_moving_height = player.p.z - ground_z;
+
+	if (new_moving_height <= 0) {
+		/*		fz = -new_moving_height * ground_stiffness
+				- player.mov_vel_z * ground_damping;*/
+		player.p.z = ground_height (player.p);
+
+		if ((gp = detect_player_plane (player.p)) == NULL) {
+			printf ("Can't find ground, moving player"
+				" to start pos\n");
+			player.p.x = 0;
+			player.p.y = 0;
+			player.p.z = ground_height (player.p);
+			gp = detect_player_plane (player.p);
+		}
+
+		vnorm (&v1, &grav);
+		theta = acos (vdot (&gp->grad, &v1));
+		
+		vinvert (&grad, &gp->grad);
+
+		vscalmul (&v2, &grad, hypot3v (&grav) * sin (theta));
+		vscalmul (&v3, &grad, hypot3v (&grav) * cos (theta));
+		
+		vinvert (&v4, &v3);
+	} else {
+		v2 = grav;
+	}
+
+	ax = (fx + v2.x + v3.x + v4.x) / player.mass;
+	ay = (fy + v2.y + v3.y + v4.y) / player.mass;
+	az = (fz + v2.z + v3.z + v4.z) / player.mass;
+
+	player.mov_vel_x += ax * dt;
+	player.mov_vel_y += ay * dt;
+	player.mov_vel_z += az * dt;
+
+	fx = -player.mov_vel_x * friction;
+	fy = -player.mov_vel_y * friction;
+	fz = -player.mov_vel_z * friction;
+
+	ax = (fx + v2.x + v3.x + v4.x) / player.mass;
+	ay = (fy + v2.y + v3.y + v4.y) / player.mass;
+	az = (fz + v2.z + v3.z + v4.z) / player.mass;
+
+	player.mov_vel_x += ax * dt;
+	player.mov_vel_y += ay * dt;
+	player.mov_vel_z += az * dt;
+
+	player.p.x += player.mov_vel_x * dt;
+	player.p.y += player.mov_vel_y * dt;
+	player.p.z += player.mov_vel_z * dt;
+
+	capture_logvars ();
+}
+
 void
 process_mouse (void)
 {
@@ -819,7 +997,7 @@ void
 define_plane (double x1, double y1, double z1,
 	      double x2, double y2, double z2,
 	      double x3, double y3, double z3,
-	      double theta)
+	      double theta, struct vect *v1)
 {
 	struct groundtri *gp;
 
@@ -863,6 +1041,17 @@ define_plane (double x1, double y1, double z1,
 	gp->p3.x = x3;
 	gp->p3.y = y3;
 	gp->p3.z = z3;
+
+	gp->normv.x = v1->x;
+	gp->normv.y = v1->y;
+	gp->normv.z = v1->z;
+
+	gp->grad.x = gp->a;
+	gp->grad.y = gp->b;
+	gp->grad.z = -1;
+
+	vnorm (&gp->normv, &gp->normv);
+	vnorm (&gp->grad, &gp->grad);
 
 	gp->normtheta = theta;
 	gp->theta = fabs (theta - DTOR (90));
@@ -909,8 +1098,13 @@ read_terrain (void)
 		v4.y = v3[1];
 		v4.z = v3[2];
 
-		v5.x = v3[0] + 1;
-		v5.y = v3[1] + 1;
+		if (v3[0] == 0 && v3[1] == 0) {
+			v5.x = 1;
+			v5.y = 1;
+		} else {
+			v5.x = v3[0];
+			v5.y = v3[1];
+		}
 		v5.z = 0;
 
 		vnorm (&v4, &v4);
@@ -922,7 +1116,7 @@ read_terrain (void)
 			define_plane (vals[0], vals[1], vals[2],
 				      vals[3], vals[4], vals[5],
 				      vals[6], vals[7], vals[8],
-				      theta);
+				      theta, &v4);
 
 			glBindTexture (GL_TEXTURE_2D, texName[0]);
 			glBegin (GL_TRIANGLES);
@@ -982,6 +1176,12 @@ draw (void)
 			playercamera.theta, playercamera.phi);
 
 	color_coords (1);
+	glDisable (GL_LIGHTING);
+	glBegin (GL_LINES);
+	glColor3f (1, 0, 0);
+	glVertex3f (player.p.x, player.p.y, player.p.z);
+	glVertex3f (player.p.x + player.mov_vel_x * 10, player.p.y + player.mov_vel_y * 10, player.p.z + player.mov_vel_z * 10);
+	glEnd ();
 
 	glLightfv (GL_LIGHT0, GL_DIFFUSE, light0_diffuse);
 	glLightfv (GL_LIGHT0, GL_POSITION, light0_position);
@@ -1159,6 +1359,15 @@ process_input (void)
 				player.p.x = 0;
 				player.p.y = 0;
 				break;
+			case 'u':
+				player.p.z = 200;
+				player.mov_vel_z = 0;
+				break;
+			case 'n':
+				player.mov_vel_x = 0;
+				player.mov_vel_y = 0;
+				player.mov_vel_z = 0;
+				break;
 			}
 			break;
 		case SDL_KEYUP:
@@ -1314,15 +1523,18 @@ main (int argc, char **argv)
 	player.force = 10000;
 
 	player.turnspeed = DTOR (90);
-	player.theta = 0;
+	player.theta = DTOR (97.5);
 	player.camdist = 15;
 
 	player.lasttimemov = get_secs ();
 	player.lasttimeturn = get_secs ();
 	player.moving = NO;
 
-	playercamera.phi = DTOR (45);
+	playercamera.phi = DTOR (0);
 	playercamera.theta_difference = 0;
+
+	add_logvar ("height", &new_moving_height);
+	add_logvar ("z", &player.p.z);
 
 	while (1) {
 		process_input ();
@@ -1336,7 +1548,11 @@ main (int argc, char **argv)
 		}
 
 		movement ();
-		moving ();
+		if (0) {
+			moving ();
+		} else {
+			new_moving ();
+		}
 
 		process_mouse ();
 
