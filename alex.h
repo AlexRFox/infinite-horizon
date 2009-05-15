@@ -21,7 +21,6 @@
 #define DTOR(x) (x / 360.0 * 2 * M_PI)
 #define RTOD(x) (x * 360.0 / 2 / M_PI)
 
-
 SDL_Surface *screen;
 TTF_Font *font;
 
@@ -110,3 +109,23 @@ void applyforcetopt (struct pt *p, struct vect *v);
 void vinvert (struct vect *v1, struct vect *v2);
 
 void zerovect (struct vect *v1);
+
+#define LOGVAR_NSAMPLES 10000
+
+struct logvar {
+	struct logvar *next;
+	char *name;
+	double *valp;
+	double samples[LOGVAR_NSAMPLES];
+};
+struct logvar *logvars;
+int logvar_idx;
+double logvar_times[LOGVAR_NSAMPLES];
+
+void write_logvars (void);
+
+void add_logvar (char *name, double *valp);
+
+void capture_logvars (void);
+
+void print_vect (struct vect *v);

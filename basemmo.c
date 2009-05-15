@@ -27,7 +27,7 @@ enum {
 	FAKE_Q = 4,
 	FAKE_E = 5,
 
-	GRAVITY = -10,
+	GRAVITY = -50,
 	FRICTION = 1,
 	PLAYERMAXVEL = 100,
 
@@ -799,94 +799,26 @@ moving (void)
 	player.p.z = ground_collision_height (player.p);*/
 }
 
-#define LOGVAR_NSAMPLES 10000
-
-struct logvar {
-	struct logvar *next;
-	char *name;
-	double *valp;
-	double samples[LOGVAR_NSAMPLES];
-};
-struct logvar *logvars;
-int logvar_idx;
-double logvar_times[LOGVAR_NSAMPLES];
-
-void
-write_logvars (void)
-{
-	struct logvar *vp;
-	char filename[1000];
-	FILE *f;
-	int idx;
-
-	for (vp = logvars; vp; vp = vp->next) {
-		sprintf (filename, "%s.dat", vp->name);
-		if ((f = fopen (filename, "w")) == NULL) {
-			fprintf (stderr, "can't create %s\n", filename);
-			exit (1);
-		}
-		for (idx = 0; idx < logvar_idx; idx++) {
-			fprintf (f, "%.14g %.14g\n",
-				 logvar_times[idx] - logvar_times[0],
-				 vp->samples[idx]);
-		}
-		fclose (f);
-	}
-}
-
-void
-add_logvar (char *name, double *valp)
-{
-	struct logvar *vp;
-	static int beenhere;
-
-	if (beenhere == 0) {
-		beenhere = 1;
-		atexit (write_logvars);
-	}
-
-	vp = xcalloc (1, sizeof *vp);
-	vp->name = strdup (name);
-	vp->valp = valp;
-
-	vp->next = logvars;
-	logvars = vp;
-}
-
-void
-capture_logvars (void)
-{
-	struct logvar *vp;
-
-	if (logvar_idx < LOGVAR_NSAMPLES) {
-		logvar_times[logvar_idx] = get_secs ();
-		for (vp = logvars; vp; vp = vp->next) {
-			vp->samples[logvar_idx] = *vp->valp;
-		}
-	}
-	logvar_idx++;
-}
-
-double new_moving_height;
-
 void
 new_moving (void)
 {
 	double ground_z, now, dt, fz, az, ground_stiffness,
 		ground_damping, fx, forw_thrust, ax, friction, fy, ay,
-		theta;
+		theta, new_moving_height;
 	struct groundtri *gp;
-	struct vect v1, v2, v3, v4, grad, grav;
+	struct vect v1, v2, v3, v4, grad, grav, ctrl_force;
 
 	now = get_secs ();
 	dt = now - player.lasttimemov;
 
 	ground_z = ground_height (player.p);
 
-	forw_thrust = 100;
-	friction = 1;
+	forw_thrust = 10000;
+	friction = 50;
 	ground_stiffness = 7500;
 	ground_damping = 100;
+
+	zerovect (&ctrl_force);
 
 	fx = 0;
 	fy = 0;
@@ -901,17 +833,64 @@ new_moving (void)
 	zerovect (&v3);
 	zerovect (&v4);
 
-	if (arrowkey[UP]) {
-		fx += forw_thrust * cos (player.theta);
-		fy += forw_thrust * sin (player.theta);
-	}
-
 	new_moving_height = player.p.z - ground_z;
 
+	/*	if (arrowkey[UP] && new_moving_height <= 0) {
+		ctrl_force.x += forw_thrust * cos (player.theta);
+		ctrl_force.y += forw_thrust * sin (player.theta);
+		}*/
 	if (new_moving_height <= 0) {
-		/*		fz = -new_moving_height * ground_stiffness
-				- player.mov_vel_z * ground_damping;*/
+		switch (player.moving) {
+		case BACK:
+			ctrl_force.x = -.3 * forw_thrust * cos (player.theta);
+			ctrl_force.y = -.3 * forw_thrust * sin (player.theta);
+			break;
+		case FORW:
+			ctrl_force.x = forw_thrust * cos (player.theta);
+			ctrl_force.y = forw_thrust * sin (player.theta);
+			break;
+		case SIDE_Q:
+			ctrl_force.x = forw_thrust
+				* cos (player.theta + DTOR (90));
+			ctrl_force.y = forw_thrust
+				* sin (player.theta + DTOR (90));
+			break;
+		case SIDE_E:
+			ctrl_force.x = forw_thrust
+				* cos (player.theta - DTOR (90));
+			ctrl_force.y = forw_thrust
+				* sin (player.theta - DTOR (90));
+			break;
+		case FORW_Q:
+			ctrl_force.x = forw_thrust
+				* cos (player.theta + DTOR (45));
+			ctrl_force.y = forw_thrust
+				* sin (player.theta + DTOR (45));
+			break;
+		case FORW_E:
+			ctrl_force.x = forw_thrust
+				* cos (player.theta - DTOR (45));
+			ctrl_force.y = forw_thrust
+				* sin (player.theta - DTOR (45));
+			break;
+		case BACK_Q:
+			ctrl_force.x = -.3 * forw_thrust
+				* cos (player.theta - DTOR (45));
+			ctrl_force.y = -.3 * forw_thrust
+				* sin (player.theta - DTOR (45));
+			break;
+		case BACK_E:
+			ctrl_force.x = -.3 * forw_thrust
+				* cos (player.theta + DTOR (45));
+			ctrl_force.y = -.3 * forw_thrust
+				* sin (player.theta + DTOR (45));
+			break;
+		}
+	}
+
+	if (new_moving_height <= 0) {
 		player.p.z = ground_height (player.p);
+		player.mov_vel_z = 0;
 
 		if ((gp = detect_player_plane (player.p)) == NULL) {
 			printf ("Can't find ground, moving player"
@@ -935,31 +914,32 @@ new_moving (void)
 		v2 = grav;
 	}
 
-	ax = (fx + v2.x + v3.x + v4.x) / player.mass;
-	ay = (fy + v2.y + v3.y + v4.y) / player.mass;
-	az = (fz + v2.z + v3.z + v4.z) / player.mass;
+	fx = ctrl_force.x + v2.x + v3.x + v4.x;
+	fy = ctrl_force.y + v2.y + v3.y + v4.y;
+	fz = ctrl_force.z + v2.z + v3.z + v4.z;
+
+	ax = fx / player.mass;
+	ay = fy / player.mass;
+	az = fz / player.mass;
 
 	player.mov_vel_x += ax * dt;
 	player.mov_vel_y += ay * dt;
 	player.mov_vel_z += az * dt;
 
-	fx = -player.mov_vel_x * friction;
-	fy = -player.mov_vel_y * friction;
-	fz = -player.mov_vel_z * friction;
+	if (new_moving_height <= 0) {
+		fx = -player.mov_vel_x * friction;
+		fy = -player.mov_vel_y * friction;
+		
+		ax = (fx + v2.x + v3.x + v4.x) / player.mass;
+		ay = (fy + v2.y + v3.y + v4.y) / player.mass;
 
-	ax = (fx + v2.x + v3.x + v4.x) / player.mass;
-	ay = (fy + v2.y + v3.y + v4.y) / player.mass;
-	az = (fz + v2.z + v3.z + v4.z) / player.mass;
-
-	player.mov_vel_x += ax * dt;
-	player.mov_vel_y += ay * dt;
-	player.mov_vel_z += az * dt;
+		player.mov_vel_x += ax * dt;
+		player.mov_vel_y += ay * dt;
+	}
 
 	player.p.x += player.mov_vel_x * dt;
 	player.p.y += player.mov_vel_y * dt;
 	player.p.z += player.mov_vel_z * dt;
-
-	capture_logvars ();
 }
 
 void
@@ -1176,12 +1156,6 @@ draw (void)
 			playercamera.theta, playercamera.phi);
 
 	color_coords (1);
-	glDisable (GL_LIGHTING);
-	glBegin (GL_LINES);
-	glColor3f (1, 0, 0);
-	glVertex3f (player.p.x, player.p.y, player.p.z);
-	glVertex3f (player.p.x + player.mov_vel_x * 10, player.p.y + player.mov_vel_y * 10, player.p.z + player.mov_vel_z * 10);
-	glEnd ();
 
 	glLightfv (GL_LIGHT0, GL_DIFFUSE, light0_diffuse);
 	glLightfv (GL_LIGHT0, GL_POSITION, light0_position);
@@ -1346,8 +1320,6 @@ process_input (void)
 				break;
 			case ' ':
 				misckey[SPACE] = 1;
-				if (player.p.z == ground_height (player.p))
-					player.mov_vel_z = 3;
 				break;
 			case 'q':
 				misckey[Q] = 1;
@@ -1532,9 +1504,6 @@ main (int argc, char **argv)
 
 	playercamera.phi = DTOR (0);
 	playercamera.theta_difference = 0;
-
-	add_logvar ("height", &new_moving_height);
-	add_logvar ("z", &player.p.z);
 
 	while (1) {
 		process_input ();

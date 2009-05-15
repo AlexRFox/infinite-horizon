@@ -432,3 +432,66 @@ zerovect (struct vect *v)
 	v->y = 0;
 	v->z = 0;
 }
+
+void
+write_logvars (void)
+{
+	struct logvar *vp;
+	char filename[1000];
+	FILE *f;
+	int idx;
+
+	for (vp = logvars; vp; vp = vp->next) {
+		sprintf (filename, "%s.dat", vp->name);
+		if ((f = fopen (filename, "w")) == NULL) {
+			fprintf (stderr, "can't create %s\n", filename);
+			exit (1);
+		}
+		for (idx = 0; idx < logvar_idx; idx++) {
+			fprintf (f, "%.14g %.14g\n",
+				 logvar_times[idx] - logvar_times[0],
+				 vp->samples[idx]);
+		}
+		fclose (f);
+	}
+}
+
+void
+add_logvar (char *name, double *valp)
+{
+	struct logvar *vp;
+	static int beenhere;
+
+	if (beenhere == 0) {
+		beenhere = 1;
+		atexit (write_logvars);
+	}
+
+	vp = xcalloc (1, sizeof *vp);
+	vp->name = strdup (name);
+	vp->valp = valp;
+
+	vp->next = logvars;
+	logvars = vp;
+}
+
+void
+capture_logvars (void)
+{
+	struct logvar *vp;
+
+	if (logvar_idx < LOGVAR_NSAMPLES) {
+		logvar_times[logvar_idx] = get_secs ();
+		for (vp = logvars; vp; vp = vp->next) {
+			vp->samples[logvar_idx] = *vp->valp;
+		}
+	}
+	logvar_idx++;
+}
+
+void
+print_vect (struct vect *v)
+{
+	printf ("%g, %g, %g\n", v->x, v->y, v->z);
+}
+
