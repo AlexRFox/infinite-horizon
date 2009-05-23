@@ -1,4 +1,4 @@
-CFLAGS = -g -Wall `sdl-config --cflags`
+CFLAGS = -g -Wall `sdl-config --cflags` -O
 LIBS = -g -Wall `sdl-config --libs` -lm -lSDL_image -lSDL_gfx -lSDL_ttf -lglut -lGLU -I /usr/local/include
 
 basemmo: basemmo.o alex.o
@@ -8,5 +8,5 @@ texgen: texgen.o alex.o
 	$(CC) $(CFLAGS) -o texgen texgen.o alex.o $(LIBS)
 
 clean:
-	rm *~
-	rm *.o
+	rm -f *~ basemmo texgen
+	rm -f *.o

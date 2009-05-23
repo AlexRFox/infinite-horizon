@@ -332,19 +332,11 @@ vsub (struct vect *v1, struct vect *v2, struct vect *v3)
 }
 
 void
-vscalmul (struct vect *v1, struct vect *v2, double s)
+vscal (struct vect *v1, struct vect *v2, double s)
 {
 	v1->x = v2->x * s;
 	v1->y = v2->y * s;
 	v1->z = v2->z * s;
-}
-
-void
-vscaldiv (struct vect *v1, struct vect *v2, double s)
-{
-	v1->x = v2->x / s;
-	v1->y = v2->y / s;
-	v1->z = v2->z / s;
 }
 
 double
@@ -418,19 +410,11 @@ applyforcetopt (struct pt *p, struct vect *v)
 }
 
 void
-vinvert (struct vect *v1, struct vect *v2)
+vset (struct vect *v, double x, double y, double z)
 {
-	v1->x = -v2->x;
-	v1->y = -v2->y;
-	v1->z = -v2->z;
-}
-
-void
-zerovect (struct vect *v)
-{
-	v->x = 0;
-	v->y = 0;
-	v->z = 0;
+	v->x = x;
+	v->y = y;
+	v->z = z;
 }
 
 void
@@ -490,8 +474,15 @@ capture_logvars (void)
 }
 
 void
-print_vect (struct vect *v)
+vprint (struct vect *v)
 {
-	printf ("%g, %g, %g\n", v->x, v->y, v->z);
+	printf ("%8.3f, %8.3f, %8.3f\n", v->x, v->y, v->z);
 }
 
+void
+pset (struct pt *p, double x, double y, double z)
+{
+	p->x = x;
+	p->y = y;
+	p->z = z;
+}
