@@ -91,7 +91,7 @@ void psub (struct vect *v1, struct pt *p1, struct pt *p2);
 void vnorm (struct vect *v1, struct vect *v2);
 void arrayvcross (double *a, double *b, double *c);
 void arrayvsub (double *a, double *b, double *c);
-void applyforcetopt (struct pt *p, struct vect *v);
+void addvtopt (struct pt *p1, struct pt *p2, struct vect *v);
 void vset (struct vect *v1, double x, double y, double z);
 void write_logvars (void);
 void add_logvar (char *name, double *valp);

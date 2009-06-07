@@ -376,6 +376,12 @@ vnorm (struct vect *v1, struct vect *v2)
 {
 	struct vect result;
 	
+	if (hypot3v (v2) == 0) {
+		printf ("file %s: line %d: about to divide by zero in vnorm, "
+			"exiting\n", __FILE__, __LINE__);
+		exit (1);
+	}
+
 	result.x = v2->x / hypot3v (v2);
 	result.y = v2->y / hypot3v (v2);
 	result.z = v2->z / hypot3v (v2);
@@ -402,11 +408,11 @@ arrayvsub (double *a, double *b, double *c)
 }
 
 void
-applyforcetopt (struct pt *p, struct vect *v)
+addvtopt (struct pt *p1, struct pt *p2, struct vect *v)
 {
-	p->x += v->x;
-	p->y += v->y;
-	p->z += v->z;
+	p1->x = p2->x + v->x;
+	p1->y = p2->y + v->y;
+	p1->z = p2->z + v->z;
 }
 
 void
