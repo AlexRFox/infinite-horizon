@@ -55,11 +55,11 @@ struct groundtri {
 struct groundtri *first_groundtri, *last_groundtri;
 
 struct unit {
-	int moving, movtype, edgeslide;
+	int moving, movtype;
 	double theta, turnspeed, camdist, speed, lasttime, mass;
 	struct pt p;
 	struct vect vel;
-	struct groundtri *loc, *slideloc;
+	struct groundtri *loc;
 };
 
 struct unit player;
@@ -83,7 +83,6 @@ void define_plane (double x1, double y1, double z1,
 		   double normx, double normy, double normz);
 struct groundtri * detect_plane (struct pt *p);
 double ground_height (struct pt *p);
-double new_ground_height (struct pt *p, struct groundtri *gp);
 void process_input (void);
 void process_mouse (void);
 void leftclickdown (void);
@@ -97,7 +96,6 @@ void zoomout (void);
 void movement (void);
 void moving (void);
 void grounded_moving (void);
-void new_grounded_moving (void);
 void falling_moving (void);
 void flying_moving (void);
 void draw (void);
@@ -368,7 +366,7 @@ detect_plane (struct pt *p1)
 
 		theta += acos (vdot (&v1, &v2));
 
-		if (theta > DTOR (359)) {
+		if (theta > DTOR (360) - DTOR (1e-7)) {
 			dist = fabs (gp->a * p1->x + gp->b * p1->y
 				     + gp->c * p1->z + gp->d)
 				/ sqrt (square (gp->a) + square (gp->b)
@@ -379,8 +377,6 @@ detect_plane (struct pt *p1)
 				best_plane = gp;
 				best_dist = dist;
 			} else if (dist < best_dist) {
-				printf ("new best plane found, overriding"
-					" old\n");
 				best_plane = gp;
 				best_dist = dist;
 			}
@@ -447,7 +443,7 @@ ground_height (struct pt *p1)
 
 		theta += acos (vdot (&v1, &v2));
 
-		if (theta > DTOR (359)) {
+		if (theta > DTOR (360) - DTOR (1e-7)) {
 			double z = (-gp->a * p2.x - gp->b * p2.y - gp->d)
 				/ gp->c;
 			double diff = fabs (z - p1->z);
@@ -469,12 +465,6 @@ ground_height (struct pt *p1)
 	printf ("ERROR! Could not find ground, expect weirdness!\n");
 
 	return (1);
-}
-
-double
-new_ground_height (struct pt *p, struct groundtri *gp)
-{
-	return ((-gp->a * p->x - gp->b * p->y - gp->d) / gp->c);
 }
 
 void
@@ -517,12 +507,13 @@ process_input (void)
 				arrowkey[E] = 1;
 				break;
 			case ' ':
-				if (player.p.z <= ground_height (&player.p)
-				    && player.movtype == GROUNDED) {
-					player.p.z += 1e-6;
-					player.vel.z = 25;
-					player.movtype = FALLING;
-					printf ("jumping\n");
+				if (0) {
+					if (player.p.z <= ground_height (&player.p)
+					    && player.movtype == GROUNDED) {
+						player.p.z += 1e-6;
+						player.vel.z = 25;
+						player.movtype = FALLING;
+					}
 				}
 				break;
 			case 'r':
@@ -823,21 +814,19 @@ moving (void)
 {
 	struct groundtri *gp;
 
-	printf ("moving function called\n");
-
 	gp = detect_plane (&player.p);
+	/*	if ((player.p.z > ground_height (&player.p)
+	     || gp->theta >= DTOR (50))
+	    && player.movtype == GROUNDED) {
+		player.movtype = FALLING;
+		printf ("changing to falling straight from moving function\n");
+		}*/
 
 	player.loc = gp;
 
-	printf ("player plane num: %d\n", player.loc->gndnum);
-
 	switch (player.movtype) {
 	case GROUNDED:
-		if (0) {
-			grounded_moving ();
-		} else {
-			new_grounded_moving ();
-		}
+		grounded_moving ();
 		break;
 	case FALLING:
 		falling_moving ();
@@ -856,8 +845,6 @@ grounded_moving (void)
 	struct groundtri *gp;
 	struct vect v1, v2, ctrl_vel;
 
-	printf ("new grounded function called\n");
-
 	now = get_secs ();
 	dt = now - player.lasttime;
 
@@ -866,8 +853,6 @@ grounded_moving (void)
 	ctrl_vel.z = 0;
 
 	if (player.p.z <= ground_height (&player.p)) {
-		printf ("player is on or under the ground, calculating how the "
-			"user wants to move\n");
 		switch (player.moving) {
 		case BACK:
 			ctrl_vel.x = -.3 * player.speed * cos (player.theta);
@@ -926,17 +911,14 @@ grounded_moving (void)
 	gp = detect_plane (&newpos);
 
 	if (gp->theta < DTOR (50)) {
-		printf ("plane shallow enough\n");
 		newpos.z = ground_height (&newpos);
 		psub (&player.vel, &newpos, &player.p);
 		vscal (&player.vel, &player.vel, 1 / dt);
 		player.p = newpos;
 	} else if (newpos.z > ground_height (&newpos)) {
-		printf ("ground dropping away, setting to falling\n");
 		player.p = newpos;
 		player.movtype = FALLING;
 	} else if (newpos.z <= ground_height (&newpos)) {
-		printf ("ground steeply up, sliding along base\n");
 		if (gp == player.loc) {
 			printf ("line %d: odd bug, exiting\n", __LINE__);
 			exit (1);
@@ -957,169 +939,18 @@ grounded_moving (void)
 			exit (1);
 		}
 
-		printf ("newpos on %d\n", gp->gndnum);
-
-		if (gp->theta < DTOR (50)) {
-			printf ("sliding along edge of steep slope while "
-				"moving up shallow slope\n");
-			psub (&player.vel, &newpos, &player.p);
-			vscal (&player.vel, &player.vel, 1 / dt);
-
-			player.p = newpos;
-		} else {
-			printf ("blah\n");
-		}
-	} else {
-		printf ("this should never be printed");
-	}
-}
-
-void
-new_grounded_moving (void)
-{
-	double now, dt;
-	struct pt newpos;
-	struct groundtri *gp;
-	struct vect v1, v2, ctrl_vel;
-
-	if (player.p.z > ground_height (&newpos)) {
-		player.movtype = FALLING;
-		return;
-	}
-
-	printf ("new grounded function called\n");
-
-	now = get_secs ();
-	dt = now - player.lasttime;
-
-	ctrl_vel.x = 0;
-	ctrl_vel.y = 0;
-	ctrl_vel.z = 0;
-
-	if (player.p.z <= ground_height (&player.p)) {
-		printf ("player is on or under the ground, calculating how the "
-			"user wants to move\n");
-		switch (player.moving) {
-		case BACK:
-			ctrl_vel.x = -.3 * player.speed * cos (player.theta);
-			ctrl_vel.y = -.3 * player.speed * sin (player.theta);
-			break;
-		case FORW:
-			ctrl_vel.x = player.speed * cos (player.theta);
-			ctrl_vel.y = player.speed * sin (player.theta);
-			break;
-		case SIDE_Q:
-			ctrl_vel.x = player.speed
-				* cos (player.theta + DTOR (90));
-			ctrl_vel.y = player.speed
-				* sin (player.theta + DTOR (90));
-			break;
-		case SIDE_E:
-			ctrl_vel.x = player.speed
-				* cos (player.theta - DTOR (90));
-			ctrl_vel.y = player.speed
-				* sin (player.theta - DTOR (90));
-			break;
-		case FORW_Q:
-			ctrl_vel.x = player.speed
-				* cos (player.theta + DTOR (45));
-			ctrl_vel.y = player.speed
-				* sin (player.theta + DTOR (45));
-			break;
-		case FORW_E:
-			ctrl_vel.x = player.speed
-				* cos (player.theta - DTOR (45));
-			ctrl_vel.y = player.speed
-				* sin (player.theta - DTOR (45));
-			break;
-		case BACK_Q:
-			ctrl_vel.x = -.3 * player.speed
-				* cos (player.theta - DTOR (45));
-			ctrl_vel.y = -.3 * player.speed
-				* sin (player.theta - DTOR (45));
-			break;
-		case BACK_E:
-			ctrl_vel.x = -.3 * player.speed
-				* cos (player.theta + DTOR (45));
-			ctrl_vel.y = -.3 * player.speed
-				* sin (player.theta + DTOR (45));
-			break;
-		}
-	}
-
-	newpos.x = player.p.x + ctrl_vel.x * dt;
-	newpos.y = player.p.y + ctrl_vel.y * dt;
-	newpos.z = player.p.z + ctrl_vel.z * dt;
-
-	psub (&player.vel, &newpos, &player.p);
-	vscal (&player.vel, &player.vel, 1 / dt);
-
-	gp = detect_plane (&newpos);
-
-	if (hypot3v (&ctrl_vel) == 0) {
-		printf ("not moving\n");
-		return;
-	}
-
-	if (gp->theta < DTOR (50)) {
-		printf ("plane shallow enough\n");
-		newpos.z = ground_height (&newpos);
-		psub (&player.vel, &newpos, &player.p);
-		vscal (&player.vel, &player.vel, 1 / dt);
-		player.p = newpos;
-	} else if (newpos.z > ground_height (&newpos)) {
-		printf ("ground dropping away, setting to falling\n");
-		player.p = newpos;
-		player.movtype = FALLING;
-	} else if (newpos.z <= ground_height (&newpos)) {
-		printf ("ground steeply up, sliding along base\n");
-		if (gp == player.loc) {
-			player.loc = player.slideloc;
-			if (gp == player.loc) {
-				printf ("line %d: odd bug, exiting\n",
-					__LINE__);
-				exit (1);
-			}
-		}
-		vnorm (&v2, &ctrl_vel);
-		vcross (&v1, &player.loc->normv, &gp->normv);
-		vnorm (&v1, &v1);
-		if (vdot (&v1, &v2) < 0)
-			vscal (&v1, &v1, -1);
-		vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
-
-		newpos.x = player.p.x + ctrl_vel.x * dt;
-		newpos.y = player.p.y + ctrl_vel.y * dt;
-		newpos.z = player.p.z + ctrl_vel.z * dt;
-
-		if ((gp = detect_plane (&newpos)) == NULL) {
-			printf ("can't detect plane, exiting\n");
-			exit (1);
-		}
-
-		printf ("newpos on %d\n", gp->gndnum);
-
 		if (gp->theta < DTOR (50)) {
 			newpos.z = ground_height (&newpos);
-			printf ("sliding along edge of steep slope while "
-				"moving up shallow slope\n");
 			psub (&player.vel, &newpos, &player.p);
 			vscal (&player.vel, &player.vel, 1 / dt);
-			player.edgeslide = YES;
-			player.slideloc = gp;
+			
 			player.p = newpos;
 		} else {
-			printf ("line %d: using backup code\n", __LINE__);
-			newpos.z = new_ground_height (&newpos, player.slideloc);
-			psub (&player.vel, &newpos, &player.p);
-			vscal (&player.vel, &player.vel, 1 / dt);
-			player.p = newpos;
+			printf ("bad new plane, skipping\n");
 		}
 	} else {
-		printf ("file %s: line %d: this should never be printed\n",
-			__FILE__, __LINE__);
-		exit (1);
-	}
+		printf ("this should never be printed\n");
+	}	
 }
 
 void
@@ -1129,8 +960,6 @@ falling_moving (void)
 	struct vect grav, grav_acc;
 	struct groundtri *gp;
 	struct pt newpos, p1;
-
-	printf ("new falling function called\n");
 
 	now = get_secs ();
 	dt = now - player.lasttime;
@@ -1153,9 +982,6 @@ falling_moving (void)
 		player.p.z = ground_height (&player.p);
 		return;
 	}
-
-	printf ("old position checks out, applying grav to newpos and "
-		"checking newpos\n");
 
 	grav.x = 0;
 	grav.y = 0;
@@ -1184,14 +1010,12 @@ falling_moving (void)
 		}
 
 		if (gp->theta < DTOR (50)) {
-			printf ("changing to grounded, player fell underground "
-				"on a shallow slope\n");
 			player.p = newpos;
 			player.p.z = ground_height (&player.p);
 			player.movtype = GROUNDED;
+			player.loc = gp;
 			return;
 		} else {
-			printf ("sliding down steep plane\n");
 			p1.x = vdot (&player.vel, &gp->normv) * gp->normv.x;
 			p1.y = vdot (&player.vel, &gp->normv) * gp->normv.y;
 			p1.z = vdot (&player.vel, &gp->normv) * gp->normv.z;
@@ -1205,11 +1029,11 @@ falling_moving (void)
 			player.p.z += player.vel.z * dt;
 		}
 	} else {
-		printf ("normal falling\n");
-
 		player.p.x = newpos.x;
 		player.p.y = newpos.y;
 		player.p.z = newpos.z;
+		
+		player.loc = gp;
 	}
 }
 
@@ -1332,7 +1156,6 @@ main (int argc, char **argv)
 
 	player.loc = detect_plane (&player.p);
 
-	player.edgeslide = NO;
 	player.movtype = GROUNDED;
 
 	player.speed = 100;
