@@ -2,35 +2,43 @@
 #include <fenv.h>
 
 enum {
+	NO,
+	YES,
+};
+
+enum {
+	UP,
+	DOWN,
+	LEFT,
+	RIGHT,
+	Q,
+	E,
+	FAKE_Q,
+	FAKE_E,
+};
+
+enum {
+	FORW = 1,
+	BACK,
+	SIDE_Q,
+	SIDE_E,
+	FORW_Q,
+	FORW_E,
+	BACK_Q,
+	BACK_E,
+};
+
+enum {
+	GROUNDED,
+	FALLING,
+	FLYING,
+};
+
+enum {
 	WIDTH = 800,
 	HEIGHT = 600,
 
-	GRAVITY = -1,
-
-	NO = 0,
-	YES = 1,
-
-	UP = 1,
-	DOWN = 2,
-	LEFT = 3,
-	RIGHT = 4,
-	Q = 5,
-	E = 6,
-	FAKE_Q = 7,
-	FAKE_E = 8,
-
-	FORW = 1,
-	BACK = 2,
-	SIDE_Q = 3,
-	SIDE_E = 4,
-	FORW_Q = 5,
-	FORW_E = 6,
-	BACK_Q = 7,
-	BACK_E = 8,
-
-	GROUNDED = 0,
-	FALLING = 1,
-	FLYING = 2,
+	GRAVITY = -2,
 };
 
 int arrowkey[16], mousebutton[8], paused, gndcounter;
@@ -47,9 +55,10 @@ struct groundtexture groundtexture;
 struct groundtri {
 	struct groundtri *next;
 	int gndnum;
-	double a, b, c, d, theta;
+	double theta;
 	struct pt p1, p2, p3;
 	struct vect normv, downhill;
+	struct plane pl;
 };
 
 struct groundtri *first_groundtri, *last_groundtri;
@@ -95,31 +104,26 @@ void zoomin (void);
 void zoomout (void);
 void movement (void);
 void moving (void);
+void old_grounded_moving (void);
 void grounded_moving (void);
 void falling_moving (void);
 void flying_moving (void);
 void draw (void);
 
 int detect_collision (struct pt *oldpos, struct pt *newpos,
-		      struct groundtri *plane)
+		      struct groundtri *gt)
 {
-	struct vect v1, v2;
+	double olddist, newdist;
 
-	psub (&v1, oldpos, &plane->p1);
-	psub (&v2, newpos, &plane->p1);
+	olddist = dist_pt_to_plane (oldpos, &gt->pl);
+	newdist = dist_pt_to_plane (newpos, &gt->pl);
 
-	if (vdot (&v1, &v2) < 0) {
-		colinfo.dist = (plane->a * oldpos->x + plane->b * oldpos->y
-				+ plane->c * oldpos->z + plane->d)
-			/ (sqrt (square (plane->a) + square (plane->b)
-				 + square (plane->c)));
-		vscal  (&colinfo.v_to_plane, &plane->normv, colinfo.dist);
-		addvtopt (&colinfo.loc_on_plane, oldpos, &colinfo.v_to_plane);
-		colinfo.plane = plane;
+	if ((olddist >= 0 && newdist >= 0)
+	    || (olddist < 0 && olddist < 0)) {
+		return (0);
+	} else {
 		return (1);
 	}
-
-	return (0);
 }
 
 void
@@ -244,58 +248,58 @@ define_plane (double x1, double y1, double z1,
 	      double x3, double y3, double z3,
 	      double normx, double normy, double normz)
 {
-	struct groundtri *gp;
+	struct groundtri *gt;
 	struct vect v1, v2;
 	
-	gp = xcalloc (1, sizeof *gp);
+	gt = xcalloc (1, sizeof *gt);
 	
 	if (first_groundtri == NULL) {
-		first_groundtri = gp;
+		first_groundtri = gt;
 	} else {
-		last_groundtri->next = gp;
+		last_groundtri->next = gt;
 	}
 
-	last_groundtri = gp;
+	last_groundtri = gt;
 	
-	gp->a = normx;
-	gp->b = normy;
-	gp->c = normz;
-	gp->d = -(gp->a * x1 + gp->b * y1 + gp->c * z1);
+	gt->pl.a = normx;
+	gt->pl.b = normy;
+	gt->pl.c = normz;
+	gt->pl.d = -(gt->pl.a * x1 + gt->pl.b * y1 + gt->pl.c * z1);
 	
-	gp->p1.x = x1;
-	gp->p1.y = y1;
-	gp->p1.z = z1;
-	gp->p2.x = x2;
-	gp->p2.y = y2;
-	gp->p2.z = z2;
-	gp->p3.x = x3;
-	gp->p3.y = y3;
-	gp->p3.z = z3;
+	gt->p1.x = x1;
+	gt->p1.y = y1;
+	gt->p1.z = z1;
+	gt->p2.x = x2;
+	gt->p2.y = y2;
+	gt->p2.z = z2;
+	gt->p3.x = x3;
+	gt->p3.y = y3;
+	gt->p3.z = z3;
 
-	gp->normv.x = normx;
-	gp->normv.y = normy;
-	gp->normv.z = normz;
+	gt->normv.x = normx;
+	gt->normv.y = normy;
+	gt->normv.z = normz;
 
-	vnorm (&gp->normv, &gp->normv);
+	vnorm (&gt->normv, &gt->normv);
 
-	if (fabs (gp->c) < 1e-6) {
-		gp->downhill.x = 0;
-		gp->downhill.y = 0;
-		gp->downhill.z = -1;
-	} else if (hypot (gp->a, gp->b) < 1e-6) {
-		gp->downhill.x = 1;
-		gp->downhill.y = 0;
-		gp->downhill.z = 0;
+	if (fabs (gt->pl.c) < 1e-6) {
+		gt->downhill.x = 0;
+		gt->downhill.y = 0;
+		gt->downhill.z = -1;
+	} else if (hypot (gt->pl.a, gt->pl.b) < 1e-6) {
+		gt->downhill.x = 1;
+		gt->downhill.y = 0;
+		gt->downhill.z = 0;
 	} else {
-		gp->downhill.x = gp->a;
-		gp->downhill.y = gp->b;
-		gp->downhill.z = (-gp->a * gp->a - gp->b * gp->b - gp->d)
-			/ gp->c;
+		gt->downhill.x = gt->pl.a;
+		gt->downhill.y = gt->pl.b;
+		gt->downhill.z = (-gt->pl.a * gt->pl.a - gt->pl.b * gt->pl.b - gt->pl.d)
+			/ gt->pl.c;
 	}
 
-	vnorm (&gp->downhill, &gp->downhill);
+	vnorm (&gt->downhill, &gt->downhill);
 	
-	vscal (&v1, &gp->downhill, -1);
+	vscal (&v1, &gt->downhill, -1);
 	if (v1.x == 0 && v1.y == 0) {
 		v2.x = 1;
 		v2.y = 1;
@@ -306,9 +310,9 @@ define_plane (double x1, double y1, double z1,
 		v2.z = 0;
 	}
 
-	gp->theta = acos (vdot (&v1, &v2));
+	gt->theta = acos (vdot (&v1, &v2));
 
-	gp->gndnum = gndcounter;
+	gt->gndnum = gndcounter;
 	gndcounter++;
 }
 
@@ -316,68 +320,58 @@ struct groundtri *
 detect_plane (struct pt *p1)
 {
 	int best_flag;
-	struct groundtri *gp, gndpoly, *best_plane;
+	struct groundtri *gt, *best_plane;
 	double theta, best_dist, dist;
 	struct vect v1, v2;
 	struct pt p2;
 	
-	v1.z = 0;
-	v2.z = 0;
-	p2.x = p1->x;
-	p2.y = p1->y;
-	p2.z = 0;
-
 	best_plane = NULL;
 	best_dist = 0;
 	best_flag = 0;
 
-	for (gp = first_groundtri; gp; gp = gp->next) {
+	p2 = *p1;
+
+	for (gt = first_groundtri; gt; gt = gt->next) {
 		theta = 0;
 
-		gndpoly = *gp;
+		p2.z = z_at_pt_on_plane (&p2, &gt->pl);
+		
 
-		gndpoly.p1.z = 0;
-		gndpoly.p2.z = 0;
-		gndpoly.p3.z = 0;
-
-		psub (&v1, &p2, &gndpoly.p1);
+		psub (&v1, &p2, &gt->p1);
 		vnorm (&v1, &v1);
 
-		psub (&v2, &p2, &gndpoly.p2);
+		psub (&v2, &p2, &gt->p2);
 		vnorm (&v2, &v2);
 
 		theta += acos (vdot (&v1, &v2));
 
 
-		psub (&v1, &p2, &gndpoly.p2);
+		psub (&v1, &p2, &gt->p2);
 		vnorm (&v1, &v1);
 
-		psub (&v2, &p2, &gndpoly.p3);
+		psub (&v2, &p2, &gt->p3);
 		vnorm (&v2, &v2);
 
 		theta += acos (vdot (&v1, &v2));
 
 		
-		psub (&v1, &p2, &gndpoly.p3);
+		psub (&v1, &p2, &gt->p3);
 		vnorm (&v1, &v1);
 
-		psub (&v2, &p2, &gndpoly.p1);
+		psub (&v2, &p2, &gt->p1);
 		vnorm (&v2, &v2);
 
 		theta += acos (vdot (&v1, &v2));
 
 		if (theta > DTOR (360) - DTOR (1e-7)) {
-			dist = fabs (gp->a * p1->x + gp->b * p1->y
-				     + gp->c * p1->z + gp->d)
-				/ sqrt (square (gp->a) + square (gp->b)
-					+ square (gp->c));
+			dist = fabs (dist_pt_to_plane (p1, &gt->pl));
 			
 			if (best_flag == 0) {
 				best_flag = 1;
-				best_plane = gp;
+				best_plane = gt;
 				best_dist = dist;
 			} else if (dist < best_dist) {
-				best_plane = gp;
+				best_plane = gt;
 				best_dist = dist;
 			}
 		}
@@ -391,80 +385,21 @@ detect_plane (struct pt *p1)
 }
 
 double
-ground_height (struct pt *p1)
+ground_height (struct pt *p)
 {
-	int best_flag;
-	double theta, best_diff, best_z;
-	struct vect v1, v2;
-	struct groundtri *gp, gndpoly;
-	struct pt p2;
+	struct groundtri *gt;
 
-	v1.z = 0;
-	v2.z = 0;
-
-	p2.x = p1->x;
-	p2.y = p1->y;
-	p2.z = 0;
-
-	best_z = 0;
-	best_diff = 0;
-	best_flag = 0;
-
-	for (gp = first_groundtri; gp; gp = gp->next) {
-		theta = 0;
-		
-		gndpoly = *gp;
-
-		gndpoly.p1.z = 0;
-		gndpoly.p2.z = 0;
-		gndpoly.p3.z = 0;
-		
-		psub (&v1, &p2, &gndpoly.p1);
-		vnorm (&v1,&v1);
-
-		psub (&v2, &p2, &gndpoly.p2);
-		vnorm (&v2, &v2);
-
-		theta = acos (vdot (&v1, &v2));
-
-		psub (&v1, &p2, &gndpoly.p2);
-		vnorm (&v1, &v1);
-
-		psub (&v2, &p2, &gndpoly.p3);
-		vnorm (&v2, &v2);
-
-		theta += acos (vdot (&v1, &v2));
-
-		psub (&v1, &p2, &gndpoly.p3);
-		vnorm (&v1, &v1);
-		
-		psub (&v2, &p2, &gndpoly.p1);
-		vnorm (&v2, &v2);
-
-		theta += acos (vdot (&v1, &v2));
-
-		if (theta > DTOR (360) - DTOR (1e-7)) {
-			double z = (-gp->a * p2.x - gp->b * p2.y - gp->d)
-				/ gp->c;
-			double diff = fabs (z - p1->z);
-
-			if (best_flag == 0) {
-				best_flag = 1;
-				best_z = z;
-				best_diff = diff;
-			} else if (diff < best_diff) {
-				best_z = z;
-				best_diff = diff;
-			}
-		}
-	}
+	if ((gt = detect_plane (p)) == NULL) {
+		printf ("Can't find ground, moving player to start position "
+			"to avoid seg fault\n");
+		player.p.x = 0;
+		player.p.y = 0;
+		player.p.z = ground_height (&player.p);
+		player.movtype = GROUNDED;
+		gt = detect_plane (&player.p);
+	}			
 	
-	if (best_flag)
-		return (best_z);
-	
-	printf ("ERROR! Could not find ground, expect weirdness!\n");
-
-	return (1);
+	return (z_at_pt_on_plane (p, &gt->pl));
 }
 
 void
@@ -523,6 +458,7 @@ process_input (void)
 				break;
 			case 'u':
 				player.p.z = ground_height (&player.p) + 50;
+				player.movtype = FALLING;
 				break;
 			case 'm':
 				printf ("%8.3f %8.3f %8.3f\n", player.p.x,
@@ -812,17 +748,19 @@ movement (void)
 void
 moving (void)
 {
-	struct groundtri *gp;
+	struct groundtri *gt;
 
-	gp = detect_plane (&player.p);
-	/*	if ((player.p.z > ground_height (&player.p)
-	     || gp->theta >= DTOR (50))
-	    && player.movtype == GROUNDED) {
-		player.movtype = FALLING;
-		printf ("changing to falling straight from moving function\n");
-		}*/
+	if ((gt = detect_plane (&player.p)) == NULL) {
+		printf ("Can't find ground, moving player to start position "
+			"to avoid seg fault\n");
+		player.p.x = 0;
+		player.p.y = 0;
+		player.p.z = ground_height (&player.p);
+		player.movtype = GROUNDED;
+		gt = detect_plane (&player.p);
+	}		
 
-	player.loc = gp;
+	player.loc = gt;
 
 	switch (player.movtype) {
 	case GROUNDED:
@@ -838,11 +776,11 @@ moving (void)
 }
 
 void
-grounded_moving (void)
+old_grounded_moving (void)
 {
 	double now, dt;
 	struct pt newpos;
-	struct groundtri *gp;
+	struct groundtri *gt;
 	struct vect v1, v2, ctrl_vel;
 
 	now = get_secs ();
@@ -908,9 +846,18 @@ grounded_moving (void)
 	psub (&player.vel, &newpos, &player.p);
 	vscal (&player.vel, &player.vel, 1 / dt);
 
-	gp = detect_plane (&newpos);
+	if ((gt = detect_plane (&newpos)) == NULL) {
+		printf ("Can't find ground, moving player to start position "
+			"to avoid seg fault\n");
+		player.p.x = 0;
+		player.p.y = 0;
+		player.p.z = ground_height (&player.p);
+		player.movtype = GROUNDED;
+		player.loc = detect_plane (&player.p);
+		return;
+	}		
 
-	if (gp->theta < DTOR (50)) {
+	if (gt->theta < DTOR (50)) {
 		newpos.z = ground_height (&newpos);
 		psub (&player.vel, &newpos, &player.p);
 		vscal (&player.vel, &player.vel, 1 / dt);
@@ -919,12 +866,12 @@ grounded_moving (void)
 		player.p = newpos;
 		player.movtype = FALLING;
 	} else if (newpos.z <= ground_height (&newpos)) {
-		if (gp == player.loc) {
+		if (gt == player.loc) {
 			printf ("line %d: odd bug, exiting\n", __LINE__);
 			exit (1);
 		}
 		vnorm (&v2, &ctrl_vel);
-		vcross (&v1, &player.loc->normv, &gp->normv);
+		vcross (&v1, &player.loc->normv, &gt->normv);
 		vnorm (&v1, &v1);
 		if (vdot (&v1, &v2) < 0)
 			vscal (&v1, &v1, -1);
@@ -934,12 +881,137 @@ grounded_moving (void)
 		newpos.y = player.p.y + ctrl_vel.y * dt;
 		newpos.z = player.p.z + ctrl_vel.z * dt;
 
-		if ((gp = detect_plane (&newpos)) == NULL) {
+		if ((gt = detect_plane (&newpos)) == NULL) {
 			printf ("can't detect plane, exiting\n");
 			exit (1);
 		}
 
-		if (gp->theta < DTOR (50)) {
+		if (gt->theta < DTOR (50)) {
+			newpos.z = ground_height (&newpos);
+			psub (&player.vel, &newpos, &player.p);
+			vscal (&player.vel, &player.vel, 1 / dt);
+			
+			player.p = newpos;
+		} else {
+			printf ("bad new plane, skipping\n");
+		}
+	} else {
+		printf ("this should never be printed\n");
+	}	
+}
+
+void
+grounded_moving (void)
+{
+	double now, dt;
+	struct pt newpos;
+	struct groundtri *gt;
+	struct vect v1, v2, ctrl_vel;
+
+	now = get_secs ();
+	dt = now - player.lasttime;
+
+	ctrl_vel.x = 0;
+	ctrl_vel.y = 0;
+	ctrl_vel.z = 0;
+
+	if (player.p.z <= ground_height (&player.p)) {
+		switch (player.moving) {
+		case BACK:
+			ctrl_vel.x = -.3 * player.speed * cos (player.theta);
+			ctrl_vel.y = -.3 * player.speed * sin (player.theta);
+			break;
+		case FORW:
+			ctrl_vel.x = player.speed * cos (player.theta);
+			ctrl_vel.y = player.speed * sin (player.theta);
+			break;
+		case SIDE_Q:
+			ctrl_vel.x = player.speed
+				* cos (player.theta + DTOR (90));
+			ctrl_vel.y = player.speed
+				* sin (player.theta + DTOR (90));
+			break;
+		case SIDE_E:
+			ctrl_vel.x = player.speed
+				* cos (player.theta - DTOR (90));
+			ctrl_vel.y = player.speed
+				* sin (player.theta - DTOR (90));
+			break;
+		case FORW_Q:
+			ctrl_vel.x = player.speed
+				* cos (player.theta + DTOR (45));
+			ctrl_vel.y = player.speed
+				* sin (player.theta + DTOR (45));
+			break;
+		case FORW_E:
+			ctrl_vel.x = player.speed
+				* cos (player.theta - DTOR (45));
+			ctrl_vel.y = player.speed
+				* sin (player.theta - DTOR (45));
+			break;
+		case BACK_Q:
+			ctrl_vel.x = -.3 * player.speed
+				* cos (player.theta - DTOR (45));
+			ctrl_vel.y = -.3 * player.speed
+				* sin (player.theta - DTOR (45));
+			break;
+		case BACK_E:
+			ctrl_vel.x = -.3 * player.speed
+				* cos (player.theta + DTOR (45));
+			ctrl_vel.y = -.3 * player.speed
+				* sin (player.theta + DTOR (45));
+			break;
+		}
+	}
+
+	newpos.x = player.p.x + ctrl_vel.x * dt;
+	newpos.y = player.p.y + ctrl_vel.y * dt;
+	newpos.z = player.p.z + ctrl_vel.z * dt;
+
+	psub (&player.vel, &newpos, &player.p);
+	vscal (&player.vel, &player.vel, 1 / dt);
+
+	if ((gt = detect_plane (&newpos)) == NULL) {
+		printf ("Can't find ground, moving player to start position "
+			"to avoid seg fault\n");
+		player.p.x = 0;
+		player.p.y = 0;
+		player.p.z = ground_height (&player.p);
+		player.movtype = GROUNDED;
+		player.loc = detect_plane (&player.p);
+		return;
+	}		
+
+	if (gt->theta < DTOR (50)) {
+		newpos.z = ground_height (&newpos);
+		psub (&player.vel, &newpos, &player.p);
+		vscal (&player.vel, &player.vel, 1 / dt);
+		player.p = newpos;
+	} else if (newpos.z > ground_height (&newpos)) {
+		player.p = newpos;
+		player.movtype = FALLING;
+	} else if (newpos.z <= ground_height (&newpos)) {
+		if (gt == player.loc) {
+			printf ("line %d: odd bug, exiting\n", __LINE__);
+			exit (1);
+		}
+		vnorm (&v2, &ctrl_vel);
+		vcross (&v1, &player.loc->normv, &gt->normv);
+		vnorm (&v1, &v1);
+		if (vdot (&v1, &v2) < 0)
+			vscal (&v1, &v1, -1);
+		vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
+
+		newpos.x = player.p.x + ctrl_vel.x * dt;
+		newpos.y = player.p.y + ctrl_vel.y * dt;
+		newpos.z = player.p.z + ctrl_vel.z * dt;
+
+		if ((gt = detect_plane (&newpos)) == NULL) {
+			printf ("can't detect plane, exiting\n");
+			exit (1);
+		}
+
+		if (gt->theta < DTOR (50)) {
 			newpos.z = ground_height (&newpos);
 			psub (&player.vel, &newpos, &player.p);
 			vscal (&player.vel, &player.vel, 1 / dt);
@@ -958,15 +1030,15 @@ falling_moving (void)
 {
 	double now, dt;
 	struct vect grav, grav_acc;
-	struct groundtri *gp;
+	struct groundtri *gt;
 	struct pt newpos, p1;
 
 	now = get_secs ();
 	dt = now - player.lasttime;
 
-	if ((gp = detect_plane (&player.p)) == NULL) {
+	if ((gt = detect_plane (&player.p)) == NULL) {
 		printf ("Can't find ground, moving player to start position "
-			"to avoid seg fault (in new falling function)\n");
+			"to avoid seg fault\n");
 		player.p.x = 0;
 		player.p.y = 0;
 		player.p.z = ground_height (&player.p);
@@ -975,9 +1047,7 @@ falling_moving (void)
 		return;
 	}
 
-	if (player.p.z <= ground_height (&player.p) && gp->theta < DTOR (50)) {
-		printf ("changing to grounded from falling function, "
-			"player is underground and plane is shallow enough");
+	if (player.p.z <= ground_height (&player.p) && gt->theta < DTOR (50)) {
 		player.movtype = GROUNDED;
 		player.p.z = ground_height (&player.p);
 		return;
@@ -998,7 +1068,7 @@ falling_moving (void)
 	newpos.z = player.p.z + player.vel.z * dt;
 
 	if (newpos.z <= ground_height (&newpos)) {
-		if ((gp = detect_plane (&newpos)) == NULL) {
+		if ((gt = detect_plane (&newpos)) == NULL) {
 			printf ("Can't find ground at newpos, moving player to "
 				"start position to avoid seg fault\n");
 			player.p.x = 0;
@@ -1009,16 +1079,16 @@ falling_moving (void)
 			return;
 		}
 
-		if (gp->theta < DTOR (50)) {
+		if (gt->theta < DTOR (50)) {
 			player.p = newpos;
 			player.p.z = ground_height (&player.p);
 			player.movtype = GROUNDED;
-			player.loc = gp;
+			player.loc = gt;
 			return;
 		} else {
-			p1.x = vdot (&player.vel, &gp->normv) * gp->normv.x;
-			p1.y = vdot (&player.vel, &gp->normv) * gp->normv.y;
-			p1.z = vdot (&player.vel, &gp->normv) * gp->normv.z;
+			p1.x = vdot (&player.vel, &gt->normv) * gt->normv.x;
+			p1.y = vdot (&player.vel, &gt->normv) * gt->normv.y;
+			p1.z = vdot (&player.vel, &gt->normv) * gt->normv.z;
 
 			player.vel.x -= p1.x;
 			player.vel.y -= p1.y;
@@ -1033,7 +1103,7 @@ falling_moving (void)
 		player.p.y = newpos.y;
 		player.p.z = newpos.z;
 		
-		player.loc = gp;
+		player.loc = gt;
 	}
 }
 
