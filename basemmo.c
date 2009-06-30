@@ -104,7 +104,6 @@ void zoomin (void);
 void zoomout (void);
 void movement (void);
 void moving (void);
-void old_grounded_moving (void);
 void grounded_moving (void);
 void falling_moving (void);
 void flying_moving (void);
@@ -265,7 +264,13 @@ define_plane (double x1, double y1, double z1,
 	gt->pl.b = normy;
 	gt->pl.c = normz;
 	gt->pl.d = -(gt->pl.a * x1 + gt->pl.b * y1 + gt->pl.c * z1);
-	
+
+	gt->normv.x = normx;
+	gt->normv.y = normy;
+	gt->normv.z = normz;
+
+	vnorm (&gt->normv, &gt->normv);
+
 	gt->p1.x = x1;
 	gt->p1.y = y1;
 	gt->p1.z = z1;
@@ -275,12 +280,6 @@ define_plane (double x1, double y1, double z1,
 	gt->p3.x = x3;
 	gt->p3.y = y3;
 	gt->p3.z = z3;
-
-	gt->normv.x = normx;
-	gt->normv.y = normy;
-	gt->normv.z = normz;
-
-	vnorm (&gt->normv, &gt->normv);
 
 	if (fabs (gt->pl.c) < 1e-6) {
 		gt->downhill.x = 0;
@@ -463,7 +462,6 @@ process_input (void)
 			case 'm':
 				printf ("%8.3f %8.3f %8.3f\n", player.p.x,
 					player.p.y, player.p.z);
-				printf ("%g\n", RTOD (player.loc->theta));
 				break;
 			case 'p':
 				if (paused == NO) {
@@ -776,135 +774,10 @@ moving (void)
 }
 
 void
-old_grounded_moving (void)
-{
-	double now, dt;
-	struct pt newpos;
-	struct groundtri *gt;
-	struct vect v1, v2, ctrl_vel;
-
-	now = get_secs ();
-	dt = now - player.lasttime;
-
-	ctrl_vel.x = 0;
-	ctrl_vel.y = 0;
-	ctrl_vel.z = 0;
-
-	if (player.p.z <= ground_height (&player.p)) {
-		switch (player.moving) {
-		case BACK:
-			ctrl_vel.x = -.3 * player.speed * cos (player.theta);
-			ctrl_vel.y = -.3 * player.speed * sin (player.theta);
-			break;
-		case FORW:
-			ctrl_vel.x = player.speed * cos (player.theta);
-			ctrl_vel.y = player.speed * sin (player.theta);
-			break;
-		case SIDE_Q:
-			ctrl_vel.x = player.speed
-				* cos (player.theta + DTOR (90));
-			ctrl_vel.y = player.speed
-				* sin (player.theta + DTOR (90));
-			break;
-		case SIDE_E:
-			ctrl_vel.x = player.speed
-				* cos (player.theta - DTOR (90));
-			ctrl_vel.y = player.speed
-				* sin (player.theta - DTOR (90));
-			break;
-		case FORW_Q:
-			ctrl_vel.x = player.speed
-				* cos (player.theta + DTOR (45));
-			ctrl_vel.y = player.speed
-				* sin (player.theta + DTOR (45));
-			break;
-		case FORW_E:
-			ctrl_vel.x = player.speed
-				* cos (player.theta - DTOR (45));
-			ctrl_vel.y = player.speed
-				* sin (player.theta - DTOR (45));
-			break;
-		case BACK_Q:
-			ctrl_vel.x = -.3 * player.speed
-				* cos (player.theta - DTOR (45));
-			ctrl_vel.y = -.3 * player.speed
-				* sin (player.theta - DTOR (45));
-			break;
-		case BACK_E:
-			ctrl_vel.x = -.3 * player.speed
-				* cos (player.theta + DTOR (45));
-			ctrl_vel.y = -.3 * player.speed
-				* sin (player.theta + DTOR (45));
-			break;
-		}
-	}
-
-	newpos.x = player.p.x + ctrl_vel.x * dt;
-	newpos.y = player.p.y + ctrl_vel.y * dt;
-	newpos.z = player.p.z + ctrl_vel.z * dt;
-
-	psub (&player.vel, &newpos, &player.p);
-	vscal (&player.vel, &player.vel, 1 / dt);
-
-	if ((gt = detect_plane (&newpos)) == NULL) {
-		printf ("Can't find ground, moving player to start position "
-			"to avoid seg fault\n");
-		player.p.x = 0;
-		player.p.y = 0;
-		player.p.z = ground_height (&player.p);
-		player.movtype = GROUNDED;
-		player.loc = detect_plane (&player.p);
-		return;
-	}		
-
-	if (gt->theta < DTOR (50)) {
-		newpos.z = ground_height (&newpos);
-		psub (&player.vel, &newpos, &player.p);
-		vscal (&player.vel, &player.vel, 1 / dt);
-		player.p = newpos;
-	} else if (newpos.z > ground_height (&newpos)) {
-		player.p = newpos;
-		player.movtype = FALLING;
-	} else if (newpos.z <= ground_height (&newpos)) {
-		if (gt == player.loc) {
-			printf ("line %d: odd bug, exiting\n", __LINE__);
-			exit (1);
-		}
-		vnorm (&v2, &ctrl_vel);
-		vcross (&v1, &player.loc->normv, &gt->normv);
-		vnorm (&v1, &v1);
-		if (vdot (&v1, &v2) < 0)
-			vscal (&v1, &v1, -1);
-		vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
-
-		newpos.x = player.p.x + ctrl_vel.x * dt;
-		newpos.y = player.p.y + ctrl_vel.y * dt;
-		newpos.z = player.p.z + ctrl_vel.z * dt;
-
-		if ((gt = detect_plane (&newpos)) == NULL) {
-			printf ("can't detect plane, exiting\n");
-			exit (1);
-		}
-
-		if (gt->theta < DTOR (50)) {
-			newpos.z = ground_height (&newpos);
-			psub (&player.vel, &newpos, &player.p);
-			vscal (&player.vel, &player.vel, 1 / dt);
-			
-			player.p = newpos;
-		} else {
-			printf ("bad new plane, skipping\n");
-		}
-	} else {
-		printf ("this should never be printed\n");
-	}	
-}
-
-void
 grounded_moving (void)
 {
 	double now, dt;
-	struct pt newpos;
+	struct pt newpos, testpos;
 	struct groundtri *gt;
 	struct vect v1, v2, ctrl_vel;
 
@@ -968,6 +841,10 @@ grounded_moving (void)
 	newpos.y = player.p.y + ctrl_vel.y * dt;
 	newpos.z = player.p.z + ctrl_vel.z * dt;
 
+	testpos.x = player.p.x + ctrl_vel.x * dt * 10;
+	testpos.y = player.p.y + ctrl_vel.y * dt * 10;
+	testpos.z = player.p.z + ctrl_vel.z * dt * 10;
+
 	psub (&player.vel, &newpos, &player.p);
 	vscal (&player.vel, &player.vel, 1 / dt);
 
@@ -982,47 +859,92 @@ grounded_moving (void)
 		return;
 	}		
 
-	if (gt->theta < DTOR (50)) {
-		newpos.z = ground_height (&newpos);
-		psub (&player.vel, &newpos, &player.p);
-		vscal (&player.vel, &player.vel, 1 / dt);
-		player.p = newpos;
-	} else if (newpos.z > ground_height (&newpos)) {
-		player.p = newpos;
-		player.movtype = FALLING;
-	} else if (newpos.z <= ground_height (&newpos)) {
-		if (gt == player.loc) {
-			printf ("line %d: odd bug, exiting\n", __LINE__);
-			exit (1);
-		}
-		vnorm (&v2, &ctrl_vel);
-		vcross (&v1, &player.loc->normv, &gt->normv);
-		vnorm (&v1, &v1);
-		if (vdot (&v1, &v2) < 0)
-			vscal (&v1, &v1, -1);
-		vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
-
-		newpos.x = player.p.x + ctrl_vel.x * dt;
-		newpos.y = player.p.y + ctrl_vel.y * dt;
-		newpos.z = player.p.z + ctrl_vel.z * dt;
-
-		if ((gt = detect_plane (&newpos)) == NULL) {
-			printf ("can't detect plane, exiting\n");
-			exit (1);
-		}
-
+	if (0) {
 		if (gt->theta < DTOR (50)) {
 			newpos.z = ground_height (&newpos);
 			psub (&player.vel, &newpos, &player.p);
 			vscal (&player.vel, &player.vel, 1 / dt);
-			
 			player.p = newpos;
+		} else if (newpos.z > ground_height (&newpos)) {
+			player.p = newpos;
+			player.movtype = FALLING;
+		} else if (newpos.z <= ground_height (&newpos)) {
+			if (gt == player.loc) {
+				printf ("line %d: odd bug, exiting\n", __LINE__);
+				exit (1);
+			}
+			vnorm (&v2, &ctrl_vel);
+			vcross (&v1, &player.loc->normv, &gt->normv);
+			vnorm (&v1, &v1);
+			if (vdot (&v1, &v2) < 0)
+				vscal (&v1, &v1, -1);
+			vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
+			
+			newpos.x = player.p.x + ctrl_vel.x * dt;
+			newpos.y = player.p.y + ctrl_vel.y * dt;
+			newpos.z = player.p.z + ctrl_vel.z * dt;
+			
+			if ((gt = detect_plane (&newpos)) == NULL) {
+				printf ("can't detect plane, exiting\n");
+				exit (1);
+			}
+			
+			if (gt->theta < DTOR (50)) {
+				newpos.z = ground_height (&newpos);
+				psub (&player.vel, &newpos, &player.p);
+				vscal (&player.vel, &player.vel, 1 / dt);
+				
+				player.p = newpos;
+			} else {
+				printf ("bad new plane, skipping\n");
+			}
 		} else {
-			printf ("bad new plane, skipping\n");
-		}
+			printf ("this should never be printed\n");
+		}	
 	} else {
-		printf ("this should never be printed\n");
-	}	
+		if (gt->theta < DTOR (50)) {
+			newpos.z = ground_height (&newpos);
+			psub (&player.vel, &newpos, &player.p);
+			vscal (&player.vel, &player.vel, 1 / dt);
+			player.p = newpos;
+		} else if (testpos.z > ground_height (&testpos)) {
+			player.p = newpos;
+			player.movtype = FALLING;
+			printf ("switching to falling\n");
+		} else if (testpos.z <= ground_height (&testpos)) {
+			if (gt == player.loc) {
+				printf ("line %d: odd bug, exiting\n", __LINE__);
+				exit (1);
+			}
+			vnorm (&v2, &ctrl_vel);
+			vcross (&v1, &player.loc->normv, &gt->normv);
+			vnorm (&v1, &v1);
+			if (vdot (&v1, &v2) < 0)
+				vscal (&v1, &v1, -1);
+			vscal (&ctrl_vel, &v1, vdot (&ctrl_vel, &v1));
+			
+			newpos.x = player.p.x + ctrl_vel.x * dt;
+			newpos.y = player.p.y + ctrl_vel.y * dt;
+			newpos.z = player.p.z + ctrl_vel.z * dt;
+			
+			if ((gt = detect_plane (&newpos)) == NULL) {
+				printf ("can't detect plane, exiting\n");
+				exit (1);
+			}
+			
+			if (gt->theta < DTOR (50)) {
+				newpos.z = ground_height (&newpos);
+				psub (&player.vel, &newpos, &player.p);
+				vscal (&player.vel, &player.vel, 1 / dt);
+				
+				player.p = newpos;
+			} else {
+				printf ("bad new plane, skipping\n");
+			}
+		} else {
+			printf ("this should never be printed\n");
+		}
+	}
 }
 
 void
@@ -1130,7 +1052,7 @@ draw (void)
 			playercamera.theta, playercamera.phi);
 
 	color_coords (1);
-	
+
 	glDisable (GL_LIGHTING);
 	glBegin (GL_LINES);
 	glColor3f (1, 0, 0);
