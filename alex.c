@@ -486,16 +486,3 @@ pset (struct pt *p, double x, double y, double z)
 	p->y = y;
 	p->z = z;
 }
-
-double
-dist_pt_to_plane (struct pt *p, struct plane *pl)
-{
-	return ((pl->a * p->x + pl->b * p->y + pl->c * p->z)
-		/ (sqrt (square (pl->a) + square (pl->b) + square (pl->c))));
-}
-
-double
-z_at_pt_on_plane (struct pt *p, struct plane *pl)
-{
-	return ((-pl->a * p->x - pl->b * p->y - pl->d) / pl->c);
-}

@@ -42,10 +42,6 @@ struct logvar *logvars;
 int logvar_idx;
 double logvar_times[LOGVAR_NSAMPLES];
 
-struct plane {
-	double a, b, c, d;
-};
-
 struct vect {
 	double x, y, z;
 };
@@ -102,5 +98,3 @@ void add_logvar (char *name, double *valp);
 void capture_logvars (void);
 void vprint (struct vect *v);
 void pset (struct pt *p, double x, double y, double z);
-double dist_pt_to_plane (struct pt *p, struct plane *pl);
-double z_at_pt_on_plane (struct pt *p, struct plane *pl);
