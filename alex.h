@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <sys/select.h>
+#include <fenv.h>
 
 #include <SDL.h>
 #include <SDL_gfxPrimitives.h>
@@ -50,6 +51,11 @@ struct pt {
 	double x, y, z;
 };
 
+struct plane {
+	double a, b, c, d;
+	struct pt middle;
+};
+
 struct view {
 	double pos[3];
 	double dist;
@@ -65,6 +71,7 @@ struct camera playercamera;
 
 void * xcalloc (int a, int b);
 double get_secs (void);
+double get_usecs (void);
 double d_to_r (double degrees);
 int alexsdl_init (int width, int height, Uint32 flags);
 int alexttf_init (char *setfont, double fontsize);
@@ -98,3 +105,8 @@ void add_logvar (char *name, double *valp);
 void capture_logvars (void);
 void vprint (struct vect *v);
 void pset (struct pt *p, double x, double y, double z);
+double dist_pt_to_plane (struct pt *p, struct plane *pl);
+double z_at_pt_on_plane (struct pt *p, struct plane *pl);
+void pt_on_z_plane (struct pt *p1, struct pt *p2, struct plane *plane);
+void gauss_e3x3 (struct pt *pt, struct plane *pl1,
+		 struct plane *pl2, struct plane *pl3);

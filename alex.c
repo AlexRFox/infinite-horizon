@@ -21,6 +21,14 @@ get_secs (void)
 }
 
 double
+get_usecs (void)
+{
+	struct timeval tv;
+	gettimeofday (&tv, NULL);
+	return (tv.tv_usec);
+}
+
+double
 d_to_r (double degrees)
 {
         return (degrees / 360.0 * 2 * M_PI);
@@ -376,6 +384,10 @@ vnorm (struct vect *v1, struct vect *v2)
 {
 	struct vect result;
 	
+	if (hypot3v (v2) == 0)
+		printf ("file %s: line %d: floating point exception\n",
+			__FILE__, __LINE__);
+
 	result.x = v2->x / hypot3v (v2);
 	result.y = v2->y / hypot3v (v2);
 	result.z = v2->z / hypot3v (v2);
@@ -485,4 +497,118 @@ pset (struct pt *p, double x, double y, double z)
 	p->x = x;
 	p->y = y;
 	p->z = z;
+}
+
+double
+dist_pt_to_plane (struct pt *p, struct plane *pl)
+{
+	return ((pl->a * p->x + pl->b * p->y + pl->c * p->z)
+		/ (sqrt (square (pl->a) + square (pl->b) + square (pl->c))));
+}
+
+double
+z_at_pt_on_plane (struct pt *p, struct plane *pl)
+{
+	return ((-pl->a * p->x - pl->b * p->y - pl->d) / pl->c);
+}
+
+void
+pt_on_z_plane (struct pt *p1, struct pt *p2, struct plane *plane)
+{
+	struct pt p3;
+	double b2;
+
+	b2 = p2->y - (plane->b / plane->a) * p2->x;
+
+	p3.x = -(((plane->c * p2->z) / plane->b) + (plane->d / plane->a) + b2)
+		/ ((plane->b / plane->a) + (plane->a / plane->b));
+	p3.y = ((plane->b / plane->a) * p3.x) + b2;
+	p3.z = p2->z;
+
+	p1->x = p3.x;
+	p1->y = p3.y;
+	p1->z = p3.z;
+}
+
+void
+gauss_e3x3 (struct pt *pt, struct plane *pl1,
+	    struct plane *pl2, struct plane *pl3)
+{
+	int i;
+	double A[3][4], k, stash;
+
+	A[0][0] = pl1->a;
+	A[0][1] = pl1->b;
+	A[0][2] = pl1->c;
+	A[0][3] = -pl1->d;
+
+	A[1][0] = pl2->a;
+	A[1][1] = pl2->b;
+	A[1][2] = pl2->c;
+	A[1][3] = -pl2->d;
+
+	A[2][0] = pl3->a;
+	A[2][1] = pl3->b;
+	A[2][2] = pl3->c;
+	A[2][3] = -pl3->d;
+
+	if (fabs (A[1][0]) >= fabs (A[0][0])
+	    && fabs (A[1][0]) >= fabs (A[2][0])) {
+		for (i = 0; i < 4; i++) {
+			stash = A[1][i];
+			A[1][i] = A[0][i];
+			A[0][i] = stash;
+		}
+	} else if (fabs (A[2][0]) >= fabs (A[0][0])
+		   && fabs (A[2][0]) >= fabs (A[1][0])) {
+		for (i = 0; i < 4; i++) {
+			stash = A[2][i];
+			A[2][i] = A[0][i];
+			A[0][i] = stash;
+		}
+	}
+
+	if (fabs (0 - A[0][0]) < 1e-6) {
+		printf ("no single intersection point, all a's are 0");
+		exit (1);
+	}
+
+	k = A[1][0] / A[0][0];
+	A[1][0] = 0;
+	A[1][1] -= A[0][1] * k;
+	A[1][2] -= A[0][2] * k;
+	A[1][3] -= A[0][3] * k;
+
+	k = A[2][0] / A[0][0];
+	A[2][0] = 0;
+	A[2][1] -= A[0][1] * k;
+	A[2][2] -= A[0][2] * k;
+	A[2][3] -= A[0][3] * k;
+
+
+	if (fabs (A[2][1]) >= fabs (A[1][1])) {
+		for (i = 0; i < 4; i++) {
+			stash = A[2][i];
+			A[2][i] = A[1][i];
+			A[1][i] = stash;
+		}
+	}
+
+	if (fabs (0 - A[1][1]) < 1e-6) {
+		printf ("no single intersection point, all b's are 0\n");
+		exit (1);
+	}
+
+	k = A[2][1] / A[1][1];
+	A[2][1] = 0;
+	A[2][2] -= A[1][2] * k;
+	A[2][3] -= A[1][3] * k;
+
+	if (fabs (0 - A[2][2]) < 1e-6) {
+		printf ("no single intersection point, last c is 0\n");
+	}
+
+	pt->z = A[2][3] / A[2][2];
+	pt->y = (A[1][3] - (A[1][2] * pt->z)) / A[1][1];
+	pt->x = (A[0][3] - (A[0][1] * pt->y) - (A[0][2] * pt->z)) / A[0][0];
 }
