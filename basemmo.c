@@ -525,8 +525,8 @@ process_input (void)
 				player.p.z = ground_height (&player.p) + 50;
 				break;
 			case 'm':
-				printf ("%8.3f %8.3f %8.3f\n", player.p.x,
-					player.p.y, player.p.z);
+				printf ("%8.3f %8.3f %8.3f %8.3f\n", player.p.x,
+					player.p.y, player.p.z, player.theta);
 				printf ("%g\n", RTOD (player.loc->theta));
 				break;
 			case 'p':
@@ -537,9 +537,10 @@ process_input (void)
 				}
 				break;
 			case 't':
-				player.p.x = -200.937;
-				player.p.y = 162.219;
-				player.p.z = 99.729;
+				player.p.x = 43.146;
+				player.p.y = 59.460;
+				player.p.z = 0.203;
+				player.theta = 1.536;
 				break;
 			case 'y':
 				player.p.x = 63.293;
