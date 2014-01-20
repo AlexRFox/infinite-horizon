@@ -1,5 +1,6 @@
-CFLAGS = -g -Wall `sdl-config --cflags`
-LIBS = -g -Wall `sdl-config --libs` -lm -lSDL_image -lSDL_gfx -lSDL_ttf -lglut -lGLU
+PKGS=sdl gl SDL_image SDL_gfx SDL_ttf glu
+CFLAGS = -g -Wall `pkg-config --cflags $(PKGS)`
+LIBS = `pkg-config --libs $(PKGS)` -lm -lglut
 
 basemmo: basemmo.o alex.o
 	$(CC) $(CFLAGS) -o basemmo basemmo.o alex.o $(LIBS)
